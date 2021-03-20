@@ -95,7 +95,8 @@ func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration
 	if elapsed >= 0 {
 		m.lasttime = now
 	}
-	if more := idx - m.size + 1; more > 0 { // advance
+	if more := idx - m.size + 1; more > 0 { //nolint:nestif
+		// advance
 		changed := m.idx == -1
 		for i := m.last; i < more+m.last; i++ {
 			m.values[i%m.size] = -1

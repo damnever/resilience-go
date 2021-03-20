@@ -96,7 +96,8 @@ func (l *fifoBlockingLimiter) Allow(ctx context.Context) error {
 		return ErrOutOfLimit
 	}
 	var timeoutc <-chan time.Time
-	if deadline, ok := ctx.Deadline(); ok && deadline.After(time.Now().Add(l.maxBlockingTimeout)) {
+	maxDeadline := time.Now().Add(l.maxBlockingTimeout + time.Millisecond)
+	if deadline, ok := ctx.Deadline(); ok && deadline.After(maxDeadline) {
 		timeoutc = time.After(l.maxBlockingTimeout)
 	}
 	select {
@@ -180,10 +181,10 @@ func (l *lifoBlockingLimiter) Allow(ctx context.Context) error {
 	}
 
 	var timeoutc <-chan time.Time
-	if deadline, ok := ctx.Deadline(); ok && deadline.After(time.Now().Add(l.maxBlockingTimeout)) {
+	maxDeadline := time.Now().Add(l.maxBlockingTimeout + time.Millisecond)
+	if deadline, ok := ctx.Deadline(); ok && deadline.After(maxDeadline) {
 		timeoutc = time.After(l.maxBlockingTimeout)
 	}
-
 	select {
 	case <-ctx.Done():
 		removeElem()

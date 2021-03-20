@@ -1,6 +1,7 @@
 package limit
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,7 @@ type GradientOptions struct {
 	// Smoothing makes the limit increasing/decreasing smoother, the bigger the steeper.
 	// The default value is 0.3.
 	Smoothing float64
+
 	// SampleWindow     time.Duration
 	// SamplePercentile float64
 	// MinRttWindow     time.Duration
@@ -35,12 +37,25 @@ func (opts *GradientOptions) withDefaults() {
 	if opts.MaxLimit <= 0 {
 		opts.MaxLimit = 300
 	}
-	if opts.RttToleranceFactor < 1 {
+	if opts.RttToleranceFactor == 0 {
 		opts.RttToleranceFactor = 1.5
 	}
-	if opts.Smoothing <= 0 {
+	if opts.Smoothing == 0 {
 		opts.Smoothing = 0.3
 	}
+}
+
+//nolint:goerr113
+func (opts GradientOptions) validate() error {
+	if opts.RttToleranceFactor < 1 {
+		return fmt.Errorf("concurrency/limit: RttToleranceFactor should equal or greater than 1: %f",
+			opts.RttToleranceFactor)
+	}
+	if opts.Smoothing < 0 || opts.Smoothing > 1 {
+		return fmt.Errorf("concurrency/limit: Smoothing should in range[0,1]: %f",
+			opts.Smoothing)
+	}
+	return nil
 }
 
 type gradientLimit struct {
@@ -50,7 +65,6 @@ type gradientLimit struct {
 	maxLimit       uint32
 	rttTolerance   float64
 	smoothing      float64
-	timeout        time.Duration
 	countDown      uint32
 	maxCountDown   uint32
 
@@ -60,7 +74,7 @@ type gradientLimit struct {
 
 // NewGradientLimit creates a gradient algorithm based on the Gradient2 algorithm from Netflix
 // and the adaptive concurrency filter from Envoyproxy.
-// The invalid options will be normalized to default values.
+// The empty options will be normalized to default values.
 //
 // The benchmark test shows that it is much more stable than the Gradient2 algorithm from Netflix.
 // Ref:
@@ -69,6 +83,9 @@ type gradientLimit struct {
 //   - https://github.com/envoyproxy/envoy/issues/7789
 func NewGradientLimit(opts GradientOptions) (Limit, error) {
 	(&opts).withDefaults()
+	if err := opts.validate(); err != nil {
+		return nil, err
+	}
 	maxCountDown := uint32(64) // FIXME(damnever): magic number.
 	return &gradientLimit{
 		estimatedLimit: uint32(math.Ceil(float64(opts.MinLimit) * 1.1)), // Add a little buffer.
@@ -112,6 +129,7 @@ func (l *gradientLimit) Observe(startAt time.Time, rtt time.Duration, inflight u
 	}
 
 	gradient := math.Max(0.5, math.Min(2, l.rttTolerance*float64(minRtt)/float64(sampleRtt)))
+
 	estimatedLimit := float64(l.estimatedLimit)
 	newLimit := estimatedLimit * gradient
 	newLimit += math.Sqrt(newLimit) // Burst room.

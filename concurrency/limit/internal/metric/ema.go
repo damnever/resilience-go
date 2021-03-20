@@ -14,6 +14,7 @@ type ExponentialMovingAverage struct {
 	window    int
 }
 
+// NewExponentialMovingAverage creates a new ExponentialMovingAverage.
 // If the smoothing factor is increased, more recent observations have more influence on the EMA.
 func NewExponentialMovingAverage(smoothing float64, window int) *ExponentialMovingAverage {
 	if smoothing <= 0 {

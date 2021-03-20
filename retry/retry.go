@@ -41,7 +41,7 @@ type Retrier struct {
 func New(backoffs Backoffs) *Retrier {
 	return &Retrier{
 		backoffs: extend(backoffs),
-		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		rand:     rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 }
 
@@ -65,7 +65,8 @@ func (r *Retrier) Run(ctx context.Context, try func() (State, error)) (err error
 			return err
 		case StopWithNil:
 			return nil
-		default: // Continue
+		case Continue:
+		default:
 		}
 		if err == nil {
 			return nil
@@ -130,7 +131,7 @@ type Backoffs struct {
 func extend(backoffs Backoffs) Backoffs {
 	capability := cap(backoffs.immutable)
 	if capability != len(backoffs.immutable)+1 {
-		panic(fmt.Errorf("unexpected backoffs capability: %d", cap(backoffs.immutable)))
+		panic(fmt.Errorf("unexpected backoffs capability: %d", cap(backoffs.immutable))) //nolint:goerr113
 	}
 	return Backoffs{
 		immutable: backoffs.immutable[0:capability],
@@ -182,7 +183,7 @@ func WithJitterFactor(backoffs Backoffs, jitter float64) Backoffs {
 			break
 		}
 		if r == nil {
-			r = rand.New(rand.NewSource(time.Now().UnixNano()))
+			r = rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec
 		}
 		jitter = r.Float64()
 	}
