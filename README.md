@@ -1,5 +1,7 @@
 ## resilience-go
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/damnever/resilience-go.svg)](https://pkg.go.dev/github.com/damnever/resilience-go)
+
 A few of useful resilience patterns for Golang service.
 
 The circuitbreaker package is a logical copy from [Netflix Hystrix](https://github.com/Netflix/Hystrix/wiki/How-it-Works#CircuitBreaker).
