@@ -32,7 +32,7 @@ const (
 	Close State = iota
 	// HalfOpen state allows a single one request to pass.
 	HalfOpen
-	// HalfOpen state disallows any request to pass.
+	// Open state disallows any request to pass.
 	Open
 )
 
@@ -141,7 +141,6 @@ func (cb *CircuitBreaker) Run(fn func() bool) {
 	}(time.Now())
 
 	statusOk = fn()
-	return
 }
 
 // Circuit creates a Circuit, each request(API call) requires exactly one Circuit, DO NOT reuse it or ignore it.
@@ -181,14 +180,14 @@ func (cb *CircuitBreaker) currentState() State {
 
 	now := time.Now()
 	if cb.metrics.isHealthy(now, cb.cfg.TriggerThreshold, cb.cfg.ErrorRateThreshold, cb.cfg.SlowCallRateThreshold) {
-		cb.setState(Close, now) // XXX: approximatly..
+		cb.setState(Close, now) // XXX: approximately..
 		return Close
 	}
 
 	prev, state, unixNano := cb.getState()
 	if state == Close {
 		if cb.nowAfter(now, unixNano) {
-			cb.setState(Open, now) // XXX: approximatly..
+			cb.setState(Open, now) // XXX: approximately..
 			return Open
 		}
 		return state

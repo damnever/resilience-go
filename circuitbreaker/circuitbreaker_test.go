@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var testconf = Config{
+var _testconf = Config{
 	MetricsWindow:         time.Second,
 	SleepWindow:           500 * time.Millisecond,
 	TriggerThreshold:      10,
@@ -20,11 +20,11 @@ var testconf = Config{
 }
 
 func TestCircuitBreakerStateTransition(t *testing.T) {
-	cb := New(testconf)
+	cb := New(_testconf)
 	require.Equal(t, Close, cb.currentState())
 
 	{ // CLOSE -> OPEN
-		for i := 0; i < testconf.TriggerThreshold-1; i++ {
+		for i := 0; i < _testconf.TriggerThreshold-1; i++ {
 			cb.trace(Close, time.Now(), false)
 		}
 		require.Equal(t, Close, cb.currentState())
@@ -33,7 +33,7 @@ func TestCircuitBreakerStateTransition(t *testing.T) {
 	}
 	{ // OPEN -> HALF-OPEN
 		require.Equal(t, Open, cb.currentState())
-		cb.setState(Open, time.Now().Add(-testconf.SleepWindow+10*time.Millisecond))
+		cb.setState(Open, time.Now().Add(-_testconf.SleepWindow+10*time.Millisecond))
 		time.Sleep(10 * time.Millisecond)
 		require.Equal(t, HalfOpen, cb.currentState())
 	}
@@ -47,11 +47,11 @@ func TestCircuitBreakerStateTransition(t *testing.T) {
 	{ // CLOSE -> OPEN -> HALF-OPEN
 		require.Equal(t, Close, cb.currentState())
 		time.Sleep(time.Second / 2)
-		for i := 0; i < testconf.TriggerThreshold; i++ {
+		for i := 0; i < _testconf.TriggerThreshold; i++ {
 			cb.trace(Close, time.Now(), false)
 		}
 		require.Equal(t, Open, cb.currentState())
-		cb.setState(Open, time.Now().Add(-testconf.SleepWindow+10*time.Millisecond))
+		cb.setState(Open, time.Now().Add(-_testconf.SleepWindow+10*time.Millisecond))
 		time.Sleep(10 * time.Millisecond)
 		require.Equal(t, HalfOpen, cb.currentState())
 	}
@@ -64,7 +64,7 @@ func TestCircuitBreakerStateTransition(t *testing.T) {
 	}
 	{ // OPEN -> CLOSE
 		require.Equal(t, Open, cb.currentState())
-		for i := 0; i < testconf.TriggerThreshold*2; i++ {
+		for i := 0; i < _testconf.TriggerThreshold*2; i++ {
 			cb.trace(Close, time.Now(), true)
 		}
 		require.Equal(t, Close, cb.currentState())
@@ -74,23 +74,20 @@ func TestCircuitBreakerStateTransition(t *testing.T) {
 func TestCircuitBreakerConcurrently(t *testing.T) {
 	t.Parallel()
 
-	testconf.TriggerThreshold = 20
-	testconf.SleepWindow = 100 * time.Millisecond
-	cb := New(testconf)
+	_testconf.TriggerThreshold = 20
+	_testconf.SleepWindow = 100 * time.Millisecond
+	cb := New(_testconf)
 
 	// OPEN
 	wg := sync.WaitGroup{}
-	for i := 0; i < testconf.TriggerThreshold; i++ {
+	for i := 0; i < _testconf.TriggerThreshold; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 
 			cb.Run(func() bool {
-				time.Sleep((testconf.MetricsWindow / time.Duration(10)) * time.Duration(i%4))
-				if i%2 == 0 {
-					return false
-				}
-				return true
+				time.Sleep((_testconf.MetricsWindow / time.Duration(10)) * time.Duration(i%4))
+				return i%2 != 0
 			})
 		}(i)
 	}
@@ -98,7 +95,7 @@ func TestCircuitBreakerConcurrently(t *testing.T) {
 	require.True(t, cb.Circuit().IsInterrupted())
 
 	// SLEEP: no request get through
-	for i := 0; i < testconf.TriggerThreshold; i++ {
+	for i := 0; i < _testconf.TriggerThreshold; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -106,11 +103,11 @@ func TestCircuitBreakerConcurrently(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	time.Sleep(testconf.SleepWindow)
+	time.Sleep(_testconf.SleepWindow)
 
 	// HALF-OPEN: only one request get through
 	var passed int32
-	for i := 1; i < testconf.TriggerThreshold; i++ {
+	for i := 1; i < _testconf.TriggerThreshold; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -131,19 +128,19 @@ func TestCircuitBreakerConcurrently(t *testing.T) {
 	}
 
 	{
-		time.Sleep(testconf.SleepWindow)
+		time.Sleep(_testconf.SleepWindow)
 		c := cb.Circuit()
 		require.False(t, c.IsInterrupted()) // HALF-OPEN
 		c.Observe(time.Now(), true)
 		require.False(t, c.IsInterrupted()) // CLOSE
 	}
 	// CLOSE
-	for i := 0; i < testconf.TriggerThreshold; i++ {
+	for i := 0; i < _testconf.TriggerThreshold; i++ {
 		c := cb.Circuit()
 		require.False(t, c.IsInterrupted())
 		c.Observe(time.Now(), true)
 	}
 
-	time.Sleep(testconf.MetricsWindow)
+	time.Sleep(_testconf.MetricsWindow)
 	require.False(t, cb.Circuit().IsInterrupted())
 }

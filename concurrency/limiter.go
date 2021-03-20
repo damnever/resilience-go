@@ -35,8 +35,8 @@ func IsDropped(err error) bool {
 		return true
 	}
 
-	neterr, ok := err.(net.Error)
-	return ok && neterr.Timeout()
+	var neterr net.Error
+	return errors.As(err, &neterr) && neterr.Timeout()
 }
 
 type simpleLimiter struct {

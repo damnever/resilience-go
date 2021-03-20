@@ -8,7 +8,7 @@ import (
 )
 
 // The following comments and code are copied and modified from:
-//   https://github.com/prometheus/client_golang/blob/b8fcd28885584356c562e9ecad42cbec45f4ce96/prometheus/summary.go#L144
+//  https://github.com/prometheus/client_golang/blob/b8fcd28885584356c562e9ecad42cbec45f4ce96/prometheus/summary.go#L144
 //
 // Problem with the sliding-window decay algorithm... The Merge method of
 // perk/quantile is actually not working as advertised - and it might be

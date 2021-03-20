@@ -19,7 +19,7 @@ func TestRetry(t *testing.T) {
 		})
 		require.NotNil(t, err)
 		require.Equal(t, 6, cnt)
-		elapsed := time.Now().Sub(now)
+		elapsed := time.Since(now)
 		require.True(t, elapsed > backoff*5)
 		require.True(t, elapsed < backoff*6)
 	}
@@ -32,7 +32,7 @@ func TestRetry(t *testing.T) {
 		})
 		require.Nil(t, err)
 		require.Equal(t, 1, cnt)
-		require.True(t, time.Now().Sub(now) < backoff)
+		require.True(t, time.Since(now) < backoff)
 	}
 	{
 		cnt := 0
@@ -57,6 +57,18 @@ func TestRetry(t *testing.T) {
 		})
 		require.Equal(t, 2, cnt)
 		require.Nil(t, err)
+	}
+	{
+		_ = Retry(WithJitterFactor(BackoffsFromSlice([]time.Duration{time.Millisecond}), 0.35),
+			func() (st State, err error) {
+				return
+			})
+	}
+	{
+		_ = Retry(WithJitterFactor(ConstantBackoffs(10, time.Millisecond), 0.35),
+			func() (st State, err error) {
+				return
+			})
 	}
 }
 

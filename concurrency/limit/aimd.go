@@ -1,8 +1,8 @@
 package limit
 
 import (
+	"fmt"
 	"math"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -34,7 +34,7 @@ func (opts *AIMDOptions) withDefaults() {
 	if opts.MaxLimit == 0 {
 		opts.MaxLimit = 300
 	}
-	if opts.IncreaseNumber < 0 {
+	if opts.IncreaseNumber == 0 {
 		opts.IncreaseNumber = 1
 	}
 	if opts.DecreaseFactor == 0 {
@@ -45,12 +45,20 @@ func (opts *AIMDOptions) withDefaults() {
 	}
 }
 
+//nolint:goerr113
 func (opts AIMDOptions) validate() error {
+	if opts.DecreaseFactor <= 0 || opts.DecreaseFactor >= 1 {
+		return fmt.Errorf("concurrency/limit: DecreaseFactor not in range(0,1): %f",
+			opts.DecreaseFactor)
+	}
+	if opts.Timeout < 0 {
+		return fmt.Errorf("concurrency/limit: Timeout should be nonnegative number: %d",
+			opts.Timeout)
+	}
 	return nil
 }
 
 type aimdLimit struct {
-	lock  sync.Mutex
 	limit uint32
 
 	minLimit       uint32
@@ -62,7 +70,7 @@ type aimdLimit struct {
 
 // NewAIMDLimit creates an additive increase and multiplicative decrease limit,
 // best use case is on client side.
-// The invalid options will be normalized to default values.
+// The empty options will be normalized to default values.
 func NewAIMDLimit(opts AIMDOptions) (Limit, error) {
 	(&opts).withDefaults()
 	if err := opts.validate(); err != nil {
@@ -87,7 +95,7 @@ func (l *aimdLimit) Get() uint32 {
 }
 
 func (l *aimdLimit) Observe(startAt time.Time, rtt time.Duration, inflight uint32, dropped bool) uint32 {
-	// TODO: benchmarks
+	// XXX: no big difference with locks in tests, at least in small dataset..
 	// l.lock.Lock()
 	// defer l.lock.Unlock()
 
@@ -95,7 +103,7 @@ func (l *aimdLimit) Observe(startAt time.Time, rtt time.Duration, inflight uint3
 		prev := atomic.LoadUint32(&l.limit)
 		limit := float64(prev)
 		if dropped || rtt > l.timeout {
-			limit = float64(limit) * l.decreaseFactor
+			limit *= l.decreaseFactor
 		} else if inflight*3 >= prev {
 			limit += float64(l.increaseNumber)
 		}
