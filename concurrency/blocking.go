@@ -93,7 +93,7 @@ func (l *fifoBlockingLimiter) Allow(ctx context.Context) error {
 
 	if atomic.AddInt32(&l.backlogSize, 1) > l.maxBacklogSize {
 		atomic.AddInt32(&l.backlogSize, -1)
-		return ErrOutOfLimit
+		return ErrLimitExceeded
 	}
 	var timeoutc <-chan time.Time
 	maxDeadline := time.Now().Add(l.maxBlockingTimeout + time.Millisecond)
@@ -114,7 +114,7 @@ func (l *fifoBlockingLimiter) Allow(ctx context.Context) error {
 	if l.limit.Allow() {
 		return nil
 	}
-	return ErrOutOfLimit
+	return ErrLimitExceeded
 }
 
 func (l *fifoBlockingLimiter) Observe(startAt time.Time, dropped bool) {
@@ -167,7 +167,7 @@ func (l *lifoBlockingLimiter) Allow(ctx context.Context) error {
 	l.lock.Lock()
 	if l.backlog.Len() >= l.maxBacklogSize {
 		l.lock.Unlock()
-		return ErrOutOfLimit
+		return ErrLimitExceeded
 	}
 	notifyc := make(chan struct{})
 	elem := &list.Element{Value: notifyc}
@@ -199,7 +199,7 @@ func (l *lifoBlockingLimiter) Allow(ctx context.Context) error {
 	if l.limit.Allow() {
 		return nil
 	}
-	return ErrOutOfLimit
+	return ErrLimitExceeded
 }
 
 func (l *lifoBlockingLimiter) Observe(startAt time.Time, dropped bool) {
