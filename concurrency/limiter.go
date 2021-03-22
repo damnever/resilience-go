@@ -10,8 +10,8 @@ import (
 	"github.com/damnever/resilience-go/concurrency/limit"
 )
 
-// ErrOutOfLimit is returned if the in-flight requests greater than the current limit.
-var ErrOutOfLimit = errors.New("concurrency: out of limit")
+// ErrLimitExceeded is returned if the in-flight requests greater than the current limit.
+var ErrLimitExceeded = errors.New("concurrency: the limit exceeded")
 
 // A Limiter limits the concurrency.
 //
@@ -52,7 +52,7 @@ func (l *simpleLimiter) Allow(ctx context.Context) error {
 	if l.limit.Allow() {
 		return nil
 	}
-	return ErrOutOfLimit
+	return ErrLimitExceeded
 }
 
 func (l *simpleLimiter) Observe(startAt time.Time, dropped bool) {
