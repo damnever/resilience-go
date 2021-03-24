@@ -36,7 +36,7 @@ type WindowedMinimum struct {
 
 	values   []time.Duration
 	size     int
-	last     int
+	first    int
 	lasttime time.Time
 	span     time.Duration
 }
@@ -53,7 +53,7 @@ func NewWindowedMinimum(window, span time.Duration) *WindowedMinimum {
 
 		values:   values,
 		size:     size,
-		last:     0,
+		first:    0,
 		lasttime: time.Now(),
 		span:     span,
 	}
@@ -85,7 +85,7 @@ func (m *WindowedMinimum) Observe(v time.Duration) time.Duration {
 	return min
 }
 
-func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration) {
+func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration) { //nolint:gocognit
 	elapsed := now.Sub(m.lasttime)
 	idx := m.size - 1 + int(elapsed/m.span)
 	if idx < 0 { // out of date, not possible if the window large enough..
@@ -98,16 +98,17 @@ func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration
 	if more := idx - m.size + 1; more > 0 { //nolint:nestif
 		// advance
 		changed := m.idx == -1
-		for i := m.last; i < more+m.last; i++ {
+		for i := m.first; i < more+m.first; i++ {
 			m.values[i%m.size] = -1
 			changed = changed || i%m.size == m.idx
 		}
-		m.last = (m.last + more) % m.size
-		idx = (m.last + m.size - 1) % m.size
+		m.first = (m.first + more) % m.size
+		idx = (m.first + m.size - 1) % m.size
 
 		if changed {
 			changed = false
-			for i := m.last; i < m.size+m.last-more; i++ {
+			m.min = math.MaxInt64
+			for i := m.first; i < m.size+m.first-more; i++ {
 				if vv := m.values[i%m.size]; vv != -1 && vv < m.min {
 					m.min = vv
 					m.idx = i % m.size
@@ -123,7 +124,7 @@ func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration
 	}
 
 	if evaluated {
-		if v < m.values[idx] {
+		if vv := m.values[idx]; vv == -1 || v < vv {
 			m.values[idx] = v
 		}
 		if v < m.min {
