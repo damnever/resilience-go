@@ -21,7 +21,7 @@ type windowedMetrics struct {
 
 	counters []*counter
 	size     int
-	last     int
+	first    int
 	lasttime time.Time
 	span     time.Duration
 }
@@ -41,7 +41,7 @@ func newWindowedMetrics(window time.Duration, now time.Time) *windowedMetrics {
 		total:    &counter{},
 		counters: counters,
 		size:     size,
-		last:     0,
+		first:    0,
 		lasttime: now,
 		span:     interval,
 	}
@@ -83,7 +83,7 @@ func (m *windowedMetrics) advance(now time.Time, called, failed, isslow bool) {
 		m.lasttime = now
 	}
 	if more := idx - m.size + 1; more > 0 { // advance
-		for i := m.last; i < more+m.last; i++ {
+		for i := m.first; i < more+m.first; i++ {
 			counter := m.counters[i%m.size]
 
 			m.total.totalcalls -= counter.totalcalls
@@ -91,8 +91,8 @@ func (m *windowedMetrics) advance(now time.Time, called, failed, isslow bool) {
 			m.total.slowcalls -= counter.slowcalls
 			counter.reset()
 		}
-		m.last = (m.last + more) % m.size
-		idx = (m.last + m.size - 1) % m.size
+		m.first = (m.first + more) % m.size
+		idx = (m.first + m.size - 1) % m.size
 	}
 
 	if called {
