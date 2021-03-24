@@ -26,6 +26,9 @@ func TestWindowedMinimum(t *testing.T) {
 		require.Equal(t, time.Duration(1), m.Value())
 	}
 
-	time.Sleep(10 * span)
+	time.Sleep(2 * span)
+	require.Equal(t, time.Duration(2), m.Value())
+
+	time.Sleep(8 * span)
 	require.Equal(t, time.Duration(-1), m.Value())
 }
