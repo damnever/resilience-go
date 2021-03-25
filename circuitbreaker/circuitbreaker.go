@@ -36,6 +36,14 @@ const (
 	Open
 )
 
+var _state2strs = [...]string{
+	"CLOSE",
+	"HALF-OPEN",
+	"OPEN",
+}
+
+func (st State) String() string { return _state2strs[int(st)] }
+
 // Config configures the CircuitBreaker.
 type Config struct {
 	// MetricsWindow is the time window to keep metrics, any metrics before the window will be droped.

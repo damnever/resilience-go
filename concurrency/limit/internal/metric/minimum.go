@@ -34,11 +34,11 @@ type WindowedMinimum struct {
 	min time.Duration
 	idx int
 
-	values   []time.Duration
-	size     int
-	first    int
-	lasttime time.Time
-	span     time.Duration
+	values    []time.Duration
+	size      int
+	first     int
+	firsttime time.Time
+	span      time.Duration
 }
 
 func NewWindowedMinimum(window, span time.Duration) *WindowedMinimum {
@@ -51,11 +51,11 @@ func NewWindowedMinimum(window, span time.Duration) *WindowedMinimum {
 		min: math.MaxInt64,
 		idx: -1,
 
-		values:   values,
-		size:     size,
-		first:    0,
-		lasttime: time.Now(),
-		span:     span,
+		values:    values,
+		size:      size,
+		first:     0,
+		firsttime: time.Now(),
+		span:      span,
 	}
 }
 
@@ -86,50 +86,64 @@ func (m *WindowedMinimum) Observe(v time.Duration) time.Duration {
 }
 
 func (m *WindowedMinimum) advance(now time.Time, evaluated bool, v time.Duration) { //nolint:gocognit
-	elapsed := now.Sub(m.lasttime)
-	idx := m.size - 1 + int(elapsed/m.span)
-	if idx < 0 { // out of date, not possible if the window large enough..
+	elapsed := now.Sub(m.firsttime)
+	if elapsed < 0 { // out of date, not possible if the window large enough..
+		return
+	}
+	idx := int(elapsed / m.span)
+
+	more := idx - m.size + 1
+	if more <= 0 {
+		if evaluated {
+			m.updateValue((m.first+idx)%m.size, v)
+		}
 		return
 	}
 
-	if elapsed >= 0 {
-		m.lasttime = now
+	// advance
+	m.firsttime = m.firsttime.Add(time.Duration(more) * m.span)
+
+	changed := m.idx == -1
+	cnt := 0
+	for i := m.first; i < more+m.first && cnt < m.size; i, cnt = i+1, cnt+1 {
+		m.values[i%m.size] = -1
+		changed = changed || i%m.size == m.idx
 	}
-	if more := idx - m.size + 1; more > 0 { //nolint:nestif
-		// advance
-		changed := m.idx == -1
-		for i := m.first; i < more+m.first; i++ {
-			m.values[i%m.size] = -1
-			changed = changed || i%m.size == m.idx
+	m.first = (m.first + more) % m.size
+	idx = (m.first + m.size - 1) % m.size
+
+	if cnt == m.size {
+		m.min = math.MaxInt64
+		m.idx = -1
+	} else if changed {
+		changed = false
+		m.min = math.MaxInt64
+		cnt = 0
+		for i := m.first; i < m.size+m.first-more && cnt < m.size; i, cnt = i+1, cnt+1 {
+			if vv := m.values[i%m.size]; vv != -1 && vv < m.min {
+				m.min = vv
+				m.idx = i % m.size
+				changed = true
+			}
 		}
-		m.first = (m.first + more) % m.size
-		idx = (m.first + m.size - 1) % m.size
 
-		if changed {
-			changed = false
+		if !changed {
 			m.min = math.MaxInt64
-			for i := m.first; i < m.size+m.first-more; i++ {
-				if vv := m.values[i%m.size]; vv != -1 && vv < m.min {
-					m.min = vv
-					m.idx = i % m.size
-					changed = true
-				}
-			}
-
-			if !changed {
-				m.min = math.MaxInt64
-				m.idx = -1
-			}
+			m.idx = -1
 		}
 	}
 
 	if evaluated {
-		if vv := m.values[idx]; vv == -1 || v < vv {
-			m.values[idx] = v
-		}
-		if v < m.min {
-			m.min = v
-			m.idx = idx
-		}
+		m.updateValue(idx, v)
+	}
+}
+
+func (m *WindowedMinimum) updateValue(idx int, v time.Duration) {
+	if vv := m.values[idx]; vv == -1 || v < vv {
+		m.values[idx] = v
+	}
+	if v < m.min {
+		m.min = v
+		m.idx = idx
 	}
 }
