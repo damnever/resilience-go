@@ -1,6 +1,7 @@
 package metric
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -19,16 +20,28 @@ func TestWindowedMinimum(t *testing.T) {
 			time.Sleep(span)
 		}
 	}
-	for i := 1; i < 10; i++ {
-		time.Sleep(span)
-		v := m.Observe(time.Duration(i))
-		require.Equal(t, time.Duration(1), v)
+
+	now := m.firsttime.Add(time.Duration(m.size-1) * m.span)
+	for i := 1; i <= 10; i++ {
+		now = now.Add(span)
+		m.advance(now, true, time.Duration(i))
 		require.Equal(t, time.Duration(1), m.Value())
 	}
 
-	time.Sleep(2 * span)
-	require.Equal(t, time.Duration(2), m.Value())
+	m.advance(now, true, time.Duration(9))
+	require.Equal(t, time.Duration(1), m.min)
 
-	time.Sleep(8 * span)
-	require.Equal(t, time.Duration(-1), m.Value())
+	for i := 2; i < 10; i++ {
+		now = now.Add(span)
+		m.advance(now, false, -1)
+		require.Equal(t, time.Duration(i), m.min)
+	}
+
+	now = now.Add(span)
+	m.advance(now, false, -1)
+	require.Equal(t, time.Duration(9), m.min)
+
+	now = now.Add(span)
+	m.advance(now, false, -1)
+	require.Equal(t, time.Duration(math.MaxInt64), m.min)
 }

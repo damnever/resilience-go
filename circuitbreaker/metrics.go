@@ -19,11 +19,13 @@ func (c *counter) reset() {
 type windowedMetrics struct {
 	total *counter
 
-	counters []*counter
-	size     int
-	first    int
-	lasttime time.Time
-	span     time.Duration
+	counters  []*counter
+	size      int
+	first     int
+	firsttime time.Time
+	now       time.Time
+	window    time.Duration
+	span      time.Duration
 }
 
 func newWindowedMetrics(window time.Duration, now time.Time) *windowedMetrics {
@@ -38,12 +40,14 @@ func newWindowedMetrics(window time.Duration, now time.Time) *windowedMetrics {
 		counters[i] = &counter{}
 	}
 	return &windowedMetrics{
-		total:    &counter{},
-		counters: counters,
-		size:     size,
-		first:    0,
-		lasttime: now,
-		span:     interval,
+		total:     &counter{},
+		counters:  counters,
+		size:      size,
+		first:     0,
+		firsttime: now,
+		now:       now,
+		window:    interval * time.Duration(size),
+		span:      interval,
 	}
 }
 
@@ -58,10 +62,11 @@ func (m *windowedMetrics) record(now time.Time, failed, isslow bool) counter {
 }
 
 func (m *windowedMetrics) reset(now time.Time) {
-	if m.lasttime.After(now) {
+	if now.Before(m.now) {
 		return
 	}
-	m.lasttime = now
+	m.now = now
+	m.firsttime = now
 	if m.total.totalcalls == 0 {
 		return
 	}
@@ -73,17 +78,19 @@ func (m *windowedMetrics) reset(now time.Time) {
 }
 
 func (m *windowedMetrics) advance(now time.Time, called, failed, isslow bool) {
-	elapsed := now.Sub(m.lasttime)
-	idx := m.size - 1 + int(elapsed/m.span)
-	if idx < 0 { // out of date.
+	elapsed := now.Sub(m.firsttime)
+	if elapsed < 0 { // out of date.
 		return
 	}
-
-	if elapsed >= 0 {
-		m.lasttime = now
+	if now.After(m.now) {
+		m.now = now
 	}
+	idx := int(elapsed / m.span)
+
 	if more := idx - m.size + 1; more > 0 { // advance
-		for i := m.first; i < more+m.first; i++ {
+		m.firsttime = m.firsttime.Add(time.Duration(more) * m.span)
+
+		for i, cnt := m.first, 0; i < more+m.first && cnt < m.size; i, cnt = i+1, cnt+1 {
 			counter := m.counters[i%m.size]
 
 			m.total.totalcalls -= counter.totalcalls
@@ -93,6 +100,8 @@ func (m *windowedMetrics) advance(now time.Time, called, failed, isslow bool) {
 		}
 		m.first = (m.first + more) % m.size
 		idx = (m.first + m.size - 1) % m.size
+	} else {
+		idx = (m.first + idx) % m.size
 	}
 
 	if called {

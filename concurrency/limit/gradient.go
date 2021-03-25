@@ -80,14 +80,13 @@ func NewGradientLimit(opts GradientOptions) (Limit, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	maxCountDown := float64(125) // FIXME(damnever): magic number.
 	return &gradientLimit{
 		estimatedLimit: uint32(math.Ceil(float64(opts.MinLimit) * 1.1)), // Add a little buffer.
 		minLimit:       opts.MinLimit,
 		maxLimit:       opts.MaxLimit,
 		rttTolerance:   opts.RttToleranceFactor,
-		maxCountDown:   maxCountDown,
-		countDown:      uint32(calcCountDown(float64(opts.MinLimit), 0, maxCountDown)),
+		maxCountDown:   float64(125), // FIXME(damnever): magic number.
+		countDown:      2,
 
 		summary: metric.NewSummary(0.95, 200*time.Millisecond, 40*time.Millisecond), // FIXME(damnever): magic numbers.
 		min:     metric.NewWindowedMinimum(90*time.Second, 2*time.Second),           // FIXME(damnever): magic numbers.
@@ -111,15 +110,13 @@ func (l *gradientLimit) Observe(startAt time.Time, rtt time.Duration, inflight u
 	if l.countDown--; l.countDown > 0 {
 		return l.estimatedLimit
 	}
-	if l.countDown == 0 {
-		l.countDown = 2 // In case of there is no samples.
-	}
+	l.countDown = 1 // In case of there is no samples.
 
 	sampleRtt := l.summary.Value()
-	minRtt := l.min.Value()
 	if sampleRtt < 0 {
 		return l.estimatedLimit
 	}
+	minRtt := l.min.Value()
 	if minRtt < 0 {
 		return l.estimatedLimit
 	}
@@ -134,13 +131,13 @@ func (l *gradientLimit) Observe(startAt time.Time, rtt time.Duration, inflight u
 	newLimit = math.Max(float64(l.minLimit), math.Min(float64(l.maxLimit), newLimit))
 
 	// Apply jitter?
-	l.countDown = uint32(calcCountDown(newLimit, inflight, l.maxCountDown))
+	l.countDown = uint32(l.calcCountDown(newLimit, inflight, l.maxCountDown))
 
 	atomic.StoreUint32(&l.estimatedLimit, uint32(newLimit))
 	return l.estimatedLimit
 }
 
-func calcCountDown(limit float64, inflight uint32, max float64) float64 {
+func (l *gradientLimit) calcCountDown(limit float64, inflight uint32, max float64) float64 {
 	v := math.Min(float64(inflight)*0.8, math.Round(limit*0.6)) // FIXME(damnever): magic numbers.
 	return math.Round(math.Max(2, math.Min(max, v)))
 }
