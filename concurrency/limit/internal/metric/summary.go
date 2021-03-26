@@ -22,18 +22,19 @@ import (
 // opposite of what we try to accomplish, but at least the results are correct.
 
 // NewSummary creates a new Summary.
-func NewSummary(quantile float64, window, span time.Duration) *Summary {
+func NewSummary(quantile float64, window time.Duration, windowBuckets int) *Summary {
 	const bufCap = 512
 	s := &Summary{
 		objectives: map[float64]float64{quantile: 0.001},
 
 		hotBuf:         make([]float64, 0, bufCap),
 		coldBuf:        make([]float64, 0, bufCap),
-		streamDuration: window,
+		streamDuration: window / time.Duration(windowBuckets),
 	}
 	s.headStreamExpTime = time.Now().Add(s.streamDuration)
 	s.hotBufExpTime = s.headStreamExpTime
-	for i, n := uint32(0), uint32(window/span); i < n; i++ {
+
+	for i := 0; i < windowBuckets; i++ {
 		s.streams = append(s.streams, s.newStream())
 	}
 	s.headStream = s.streams[0]

@@ -17,6 +17,7 @@ func TestConcurrently(t *testing.T) {
 
 	testf := func(l limit.Limit) {
 		limiter := New(l)
+		defer limiter.Close()
 		wg := sync.WaitGroup{}
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
@@ -42,6 +43,7 @@ func TestConcurrently(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatalf("timed out: %s", l.Name())
 		}
+		limiter.Close()
 	}
 
 	t.Run("Fixed", func(t *testing.T) {

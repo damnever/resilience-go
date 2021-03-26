@@ -66,6 +66,8 @@ type aimdLimit struct {
 	increaseNumber uint32
 	decreaseFactor float64
 	timeout        time.Duration
+
+	*deactivated
 }
 
 // NewAIMDLimit creates an additive increase and multiplicative decrease limit,
@@ -83,6 +85,8 @@ func NewAIMDLimit(opts AIMDOptions) (Limit, error) {
 		increaseNumber: opts.IncreaseNumber,
 		decreaseFactor: opts.DecreaseFactor,
 		timeout:        opts.Timeout,
+
+		deactivated: &deactivated{},
 	}, nil
 }
 
@@ -91,6 +95,10 @@ func (l *aimdLimit) Name() string {
 }
 
 func (l *aimdLimit) Get() uint32 {
+	if l.deactivated.Deactivated() {
+		return 0
+	}
+
 	return atomic.LoadUint32(&l.limit)
 }
 
@@ -98,6 +106,9 @@ func (l *aimdLimit) Observe(startAt time.Time, rtt time.Duration, inflight uint3
 	// XXX: no big difference with locks in tests, at least in small dataset..
 	// l.lock.Lock()
 	// defer l.lock.Unlock()
+	if l.deactivated.Deactivated() {
+		return 0
+	}
 
 	for {
 		prev := atomic.LoadUint32(&l.limit)
@@ -113,4 +124,8 @@ func (l *aimdLimit) Observe(startAt time.Time, rtt time.Duration, inflight uint3
 			return newLimit
 		}
 	}
+}
+
+func (l *aimdLimit) Deactivate() {
+	l.deactivated.deactivate()
 }

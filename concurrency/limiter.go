@@ -26,6 +26,8 @@ type Limiter interface {
 	// Observe observes state and calculate stats, caller must call it if Allow returns nil,
 	// otherwise it may panic.
 	Observe(startAt time.Time, dropped bool)
+	// Close closes the limiter, the following Allow will always returns ErrLimitExceeded.
+	Close() error
 }
 
 // IsDropped checks if the error is context.Canceled/DeadlineExceeded, or net.Error.Timeout().
@@ -59,6 +61,11 @@ func (l *simpleLimiter) Observe(startAt time.Time, dropped bool) {
 	l.limit.Observe(startAt, time.Since(startAt), dropped)
 }
 
+func (l *simpleLimiter) Close() error {
+	l.limit.Deactivate()
+	return nil
+}
+
 type wrappedLimit struct {
 	inflight int32
 	limit    limit.Limit
@@ -86,4 +93,12 @@ func (l *wrappedLimit) Observe(startAt time.Time, rtt time.Duration, dropped boo
 		panic("concurrency: negative inflight")
 	}
 	return l.limit.Observe(startAt, rtt, uint32(inflight), dropped)
+}
+
+func (l *wrappedLimit) Deactivate() {
+	l.limit.Deactivate()
+}
+
+func (l *wrappedLimit) Deactivated() bool {
+	return l.limit.Deactivated()
 }
