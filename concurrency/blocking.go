@@ -87,6 +87,9 @@ func NewFIFOBlockingLimiter(l limit.Limit, optFuncs ...WithBlockingLimiterOption
 }
 
 func (l *fifoBlockingLimiter) Allow(ctx context.Context) error {
+	if l.limit.Deactivated() {
+		return ErrLimitExceeded
+	}
 	if l.limit.Allow() {
 		return nil
 	}
@@ -126,6 +129,11 @@ func (l *fifoBlockingLimiter) Observe(startAt time.Time, dropped bool) {
 	}
 }
 
+func (l *fifoBlockingLimiter) Close() error {
+	l.limit.Deactivate()
+	return nil
+}
+
 type lifoBlockingLimiter struct {
 	lock               sync.Mutex
 	backlog            *list.List
@@ -160,6 +168,9 @@ func NewLIFOBlockingLimiter(l limit.Limit, optFuncs ...WithBlockingLimiterOption
 }
 
 func (l *lifoBlockingLimiter) Allow(ctx context.Context) error {
+	if l.limit.Deactivated() {
+		return ErrLimitExceeded
+	}
 	if l.limit.Allow() {
 		return nil
 	}
@@ -207,10 +218,17 @@ func (l *lifoBlockingLimiter) Observe(startAt time.Time, dropped bool) {
 
 	l.lock.Lock()
 	elem := l.backlog.Front()
-	l.backlog.Remove(elem)
+	if elem != nil {
+		l.backlog.Remove(elem)
+	}
 	l.lock.Unlock()
 	if elem != nil {
 		notifyc := elem.Value.(chan struct{})
 		close(notifyc)
 	}
+}
+
+func (l *lifoBlockingLimiter) Close() error {
+	l.limit.Deactivate()
+	return nil
 }
