@@ -1,3 +1,6 @@
+// Package concurrency provides concurrency limit implementations, such as fixed and adaptive concurrency.
+//
+// This package is largely based on Envoy Proxy and Netflix concurrency-limits.
 package concurrency
 
 import (
