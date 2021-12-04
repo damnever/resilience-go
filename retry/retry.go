@@ -1,56 +1,58 @@
-// Package retry provides util functions to retry fail actions.
+// Package retry provides functions to retry failed actions elegantly.
 package retry
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
 	"sync"
 	"time"
 )
 
-// ErrNeedRetry is a placholder helper, in case you have no error to return, such as bool status, etc.
-var ErrNeedRetry = errors.New("retry: need retry")
+// ErrContinue is a placholder helper, in case you have no error to return.
+var ErrContinue = errors.New("retry: continue")
 
-// State controls whether the fail action should continue retrying.
-type State uint8
-
-const (
-	// Continue continues retrying the fail action.
-	Continue State = iota
-	// StopWithErr stops retrying the fail action,
-	// returns the error which the RetryFunc returns.
-	StopWithErr
-	// StopWithNil stops retrying the fail action, returns nil.
-	StopWithNil
-)
-
-// Retrier retrys fail actions with backoff.
-type Retrier struct {
-	backoffs Backoffs
-
-	randl sync.Mutex
-	rand  *rand.Rand
+type unrecoverableError struct {
+	cause error
 }
 
-// New creates a new Retrier with backoffs, the backoffs is the wait
-// time before each retrying.
-// The count of retrying will be len(backoffs), the first call
-// is not counted in retrying.
-func New(backoffs Backoffs) *Retrier {
-	return &Retrier{
-		backoffs: extend(backoffs),
-		rand:     rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+func (e unrecoverableError) Unwrap() error {
+	return e.cause
+}
+
+func (e unrecoverableError) Error() string {
+	return e.cause.Error()
+}
+
+// Unrecoverable marks the error as unrecoverable, unrecoverable error makes Retry stop.
+func Unrecoverable(err error) error {
+	if err == nil {
+		return nil
 	}
+	return unrecoverableError{cause: err}
 }
 
-// Run keeps calling the RetryFunc if it returns (Continue, non-nil-err),
-// otherwise it will stop retrying. It is goroutine safe.
-func (r *Retrier) Run(ctx context.Context, try func() (State, error)) (err error) {
-	var state State
+// Run is a shortcut for Retry.Run with context.Background().
+func Run(backoffs Backoffs, tryFunc func() error) error {
+	return New(backoffs).Run(context.Background(), tryFunc)
+}
+
+// Retry retries failed actions with backoffs.
+type Retry struct {
+	backoffs Backoffs
+}
+
+// New a Retry with backoffs.
+func New(backoffs Backoffs) Retry {
+	return Retry{backoffs: backoffs}
+}
+
+// Run keeps calling the tryFunc until it returns a nil error or Unrecoverable error.
+// The maximum number of retry is the number of backoffs, the first call isn't counted as a retry.
+// It is thread-safe.
+func (r Retry) Run(ctx context.Context, tryFunc func() error) (err error) {
 	cancelc := ctx.Done()
-	// Retry should be rare, so no need to pooling timers?
+	// Retry should be rare, so no need to reuse those timers?
 	var timer *time.Timer
 	defer func() {
 		if timer != nil {
@@ -58,21 +60,18 @@ func (r *Retrier) Run(ctx context.Context, try func() (State, error)) (err error
 		}
 	}()
 
-	for i := range r.backoffs.immutable {
-		state, err = try()
-		switch state {
-		case StopWithErr:
-			return err
-		case StopWithNil:
-			return nil
-		case Continue:
-		default:
-		}
+	for i, n := 0, r.backoffs.count()+1; i < n; i++ {
+		err = tryFunc()
 		if err == nil {
-			return nil
+			return
+		}
+		unrecoverable := unrecoverableError{}
+		if errors.As(err, &unrecoverable) {
+			err = unrecoverable.cause
+			return
 		}
 
-		backoff := r.applyJitterFactor(i)
+		backoff := r.backoffs.get(i)
 		if backoff > 0 {
 			if timer == nil {
 				timer = time.NewTimer(backoff)
@@ -96,10 +95,84 @@ func (r *Retrier) Run(ctx context.Context, try func() (State, error)) (err error
 	return err
 }
 
-func (r *Retrier) applyJitterFactor(i int) time.Duration {
-	d := r.backoffs.immutable[i]
-	jitter := r.backoffs.jitter
-	if jitter == 1 {
+// Iterator creates a new Iterator. The returned Iterator is not thread-safe.
+func (r Retry) Iterator() *Iterator {
+	return &Iterator{
+		next:     0,
+		backoffs: r.backoffs,
+		timer:    nil,
+	}
+}
+
+// Iterator wraps backoffs for for-loop style flat workflows.
+// It is not thread-safe.
+type Iterator struct {
+	next     int
+	backoffs Backoffs
+	timer    *time.Timer
+}
+
+// Next returns false if the ctx is done or the Iterator is exhausted,
+// otherwise it waits corresponding backoff time then returns true.
+// There is no waiting in the first call, since the first call isn't
+// counted as a retry.
+func (i *Iterator) Next(ctx context.Context) bool {
+	next := i.next
+	i.next++
+	if next > i.backoffs.count() {
+		if i.timer != nil {
+			i.timer.Stop()
+		}
+		return false
+	}
+	if next == 0 {
+		return true
+	}
+
+	backoff := i.backoffs.get(next - 1)
+	if backoff == 0 {
+		select {
+		case <-ctx.Done():
+			i.next = i.backoffs.count() + 1 // Mark the Iterator invalid.
+			return false
+		default:
+		}
+		return true
+	}
+
+	if i.timer == nil {
+		i.timer = time.NewTimer(backoff)
+	} else {
+		i.timer.Reset(backoff)
+	}
+	select {
+	case <-ctx.Done():
+		i.next = i.backoffs.count() + 1 // Mark the Iterator invalid.
+		return false
+	case <-i.timer.C:
+		return true
+	}
+}
+
+// Backoffs represents a list of duration to wait before each retrying.
+type Backoffs struct {
+	immutable []time.Duration
+	jitter    float64
+	rand      *lockedRand
+}
+
+func (b *Backoffs) count() int {
+	return len(b.immutable)
+}
+
+func (b *Backoffs) get(index int) time.Duration {
+	if index >= len(b.immutable) {
+		return 0
+	}
+
+	d := b.immutable[index]
+	jitter := b.jitter
+	if jitter == 0 || jitter >= 1 {
 		return d
 	}
 
@@ -107,55 +180,26 @@ func (r *Retrier) applyJitterFactor(i int) time.Duration {
 	delta := f * jitter
 	min := f - delta
 	max := f + delta
-	return time.Duration(min + (max-min)*r.rand01())
+	return time.Duration(min + (max-min)*b.rand.rand01())
 }
 
-func (r *Retrier) rand01() float64 {
-	r.randl.Lock()
-	f := r.rand.Float64()
-	r.randl.Unlock()
-	return f
-}
-
-// Retry is a shortcut for Retrier.Run with context.Background().
-func Retry(backoffs Backoffs, try func() (State, error)) error {
-	return New(backoffs).Run(context.Background(), try)
-}
-
-// Backoffs holds a list of immutable backoffs with a optional jitter factor.
-type Backoffs struct {
-	immutable []time.Duration
-	jitter    float64
-}
-
-func extend(backoffs Backoffs) Backoffs {
-	capability := cap(backoffs.immutable)
-	if capability != len(backoffs.immutable)+1 {
-		panic(fmt.Errorf("unexpected backoffs capability: %d", cap(backoffs.immutable))) //nolint:goerr113
-	}
-	return Backoffs{
-		immutable: backoffs.immutable[0:capability],
-		jitter:    backoffs.jitter,
-	}
-}
-
-// BackoffsFromSlice creates Backoffs from a slice of time.Duration.
-func BackoffsFromSlice(backoffs []time.Duration) Backoffs {
+// BackoffsFrom creates Backoffs from a list of time.Duration.
+func BackoffsFrom(backoffs []time.Duration) Backoffs {
 	n := len(backoffs)
-	b := Backoffs{immutable: make([]time.Duration, n, n+1)}
+	b := Backoffs{immutable: make([]time.Duration, n, n), rand: newLockedRand()}
 	copy(b.immutable, backoffs)
 	return b
 }
 
 // ConstantBackoffs creates a list of backoffs with constant values.
 func ConstantBackoffs(n int, backoff time.Duration) Backoffs {
-	backoffs := make([]time.Duration, n, n+1)
+	backoffs := make([]time.Duration, n, n)
 	if backoff > 0 {
 		for i := 0; i < n; i++ {
 			backoffs[i] = backoff
 		}
 	}
-	return Backoffs{immutable: backoffs, jitter: 1}
+	return Backoffs{immutable: backoffs, rand: newLockedRand()}
 }
 
 // ZeroBackoffs creates a list of backoffs with zero values.
@@ -163,15 +207,20 @@ func ZeroBackoffs(n int) Backoffs {
 	return ConstantBackoffs(n, 0)
 }
 
-// ExponentialBackoffs creates a list of backoffs with values are calculated by backoff*2^[0 1 2 .. n).
-func ExponentialBackoffs(n int, backoff time.Duration) Backoffs {
-	backoffs := make([]time.Duration, n, n+1)
-	if backoff > 0 {
+// ExponentialBackoffs creates a list of backoffs with values are calculated by min*2^[0 1 2 .. n).
+// All backoff value is equal or less than max, zero max means no such limitation.
+func ExponentialBackoffs(n int, min, max time.Duration) Backoffs {
+	backoffs := make([]time.Duration, n, n)
+	if min > 0 {
 		for i := 0; i < n; i++ {
-			backoffs[i] = backoff * (1 << uint(i))
+			v := min * (1 << uint(i))
+			if max > 0 && v > max {
+				v = max
+			}
+			backoffs[i] = v
 		}
 	}
-	return Backoffs{immutable: backoffs, jitter: 1}
+	return Backoffs{immutable: backoffs, rand: newLockedRand()}
 }
 
 // WithJitterFactor applies a jitter factor on backoffs, the original one is unchanged,
@@ -187,5 +236,24 @@ func WithJitterFactor(backoffs Backoffs, jitter float64) Backoffs {
 		}
 		jitter = r.Float64()
 	}
-	return Backoffs{immutable: backoffs.immutable, jitter: jitter}
+	return Backoffs{immutable: backoffs.immutable, jitter: jitter, rand: backoffs.rand}
+}
+
+type lockedRand struct {
+	lock sync.Mutex
+	rand *rand.Rand
+}
+
+func newLockedRand() *lockedRand {
+	return &lockedRand{
+		lock: sync.Mutex{},
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+	}
+}
+
+func (r *lockedRand) rand01() float64 {
+	r.lock.Lock()
+	f := r.rand.Float64()
+	r.lock.Unlock()
+	return f
 }
