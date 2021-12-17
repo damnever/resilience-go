@@ -402,6 +402,9 @@ func newLockedMetrics(
 	errorRateThreshold float64,
 	slowCallRateThreshold float64,
 ) *lockedMetrics {
+	if observationsThreshold <= 0 {
+		observationsThreshold = 1
+	}
 	return &lockedMetrics{
 		observationsThreshold: observationsThreshold,
 		errorRateThreshold:    errorRateThreshold,
