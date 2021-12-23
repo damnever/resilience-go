@@ -330,7 +330,7 @@ func (st *internalState) trace(
 	}
 
 	failed := !statusOk
-	isSlow := time.Since(startAt) >= slowCallDurationThreshold
+	isSlow := now.Sub(startAt) >= slowCallDurationThreshold
 
 	switch st.state { //nolint:exhaustive
 	case Closed:
