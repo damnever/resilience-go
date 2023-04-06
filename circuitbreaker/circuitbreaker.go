@@ -13,9 +13,9 @@
 //     to the OPEN, otherwise the circuit breaker is CLOSED, and 1 takes over again.
 //
 // Reference:
-//  - https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern
-//  - https://github.com/Netflix/Hystrix/wiki/How-it-Works#CircuitBreaker
-//  - https://resilience4j.readme.io/docs/circuitbreaker
+//   - https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern
+//   - https://github.com/Netflix/Hystrix/wiki/How-it-Works#CircuitBreaker
+//   - https://resilience4j.readme.io/docs/circuitbreaker
 package circuitbreaker
 
 import (
@@ -249,7 +249,7 @@ func (cb *CircuitBreaker) afterCall(state *internalState, startAt time.Time, sta
 		return
 	}
 	newState := cb.newState(cbState, now)
-	if !cb.casState(state, newState) {
+	if !cb.casState(state, newState) {//nolint
 		// Recycle untouched metric object?
 	}
 }
@@ -261,9 +261,9 @@ func timeNano(t time.Time) int64 {
 }
 
 func (cb *CircuitBreaker) casState(prev, new *internalState) bool {
-	swapped := atomic.CompareAndSwapPointer( //nolint:gosec
-		(*unsafe.Pointer)(unsafe.Pointer(&cb.state)), //nolint:gosec
-		unsafe.Pointer(prev), unsafe.Pointer(new))    //nolint:gosec
+	swapped := atomic.CompareAndSwapPointer(
+		(*unsafe.Pointer)(unsafe.Pointer(&cb.state)),
+		unsafe.Pointer(prev), unsafe.Pointer(new))
 	if swapped && cb.cfg.OnStateChange != nil {
 		cb.cfg.OnStateChange(prev.state, new.state)
 	}
@@ -272,14 +272,14 @@ func (cb *CircuitBreaker) casState(prev, new *internalState) bool {
 
 func (cb *CircuitBreaker) setState(st State, now time.Time) {
 	state := cb.newState(st, now)
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&cb.state)), unsafe.Pointer(state)) //nolint:gosec
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&cb.state)), unsafe.Pointer(state))
 	if cb.cfg.OnStateChange != nil {
 		cb.cfg.OnStateChange(Undefined, st)
 	}
 }
 
 func (cb *CircuitBreaker) loadState() *internalState {
-	return (*internalState)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&cb.state)))) //nolint:gosec
+	return (*internalState)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&cb.state))))
 }
 
 func (cb *CircuitBreaker) newState(cbState State, now time.Time) *internalState {

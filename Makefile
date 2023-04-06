@@ -6,7 +6,7 @@ help:  ## Display this help
 		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 
-GOLANGCI_LINT_VERSION ?= "v1.32.2"
+GOLANGCI_LINT_VERSION ?= "v1.52.2"
 
 local-test: SHELL:=/bin/bash
 local-test:  ## Run test cases. (Args: GOLANGCI_LINT_VERSION=latest)
