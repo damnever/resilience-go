@@ -249,7 +249,7 @@ func (cb *CircuitBreaker) afterCall(state *internalState, startAt time.Time, sta
 		return
 	}
 	newState := cb.newState(cbState, now)
-	if !cb.casState(state, newState) {//nolint
+	if !cb.casState(state, newState) { //nolint
 		// Recycle untouched metric object?
 	}
 }
